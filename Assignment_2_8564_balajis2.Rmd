@@ -1,0 +1,126 @@
+## CS 598 PSL - Coding Assignment 2
+## Date: 09/24/2020
+## NET ID: balajis2
+
+##### Data Preparation
+##### Load required R packages and apply proper transformations on the Boston Housing Data.
+```{r}
+set.seed(8564)
+library(MASS)
+library(glmnet)
+myData = Boston
+names(myData)[14] = "Y"
+iLog = c(1, 3, 5, 6, 8, 9, 10, 14);
+myData[, iLog] = log(myData[, iLog]);
+myData[, 2] = myData[, 2] / 10;
+myData[, 7] = myData[, 7]^2.5 / 10^4
+myData[, 11] = exp(0.4 * myData[, 11]) / 1000;
+myData[, 12] = myData[, 12] / 100;
+myData[, 13] = sqrt(myData[, 13]);
+X = as.matrix(myData[, -14])
+y = myData$Y
+lam.seq = c(0.30, 0.2, 0.1, 0.05, 0.02, 0.005)
+```
+
+#### Function to solve the Lasso estimate for βj given other coefficients fixed
+
+```{r}
+one_var_lasso = function(r, x, lam) {
+    xx = sum(x^2)
+    xr = sum(r*x)
+    b = (abs(xr) - lam/2)/xx
+    b = sign(xr) * ifelse(b > 0, b, 0)
+    return(b)
+}
+```
+
+#### CD for Lasso
+#### Implement the Coordinate Descent algorithm for Lasso.
+
+```{r}
+MyLasso = function(X, y, lam.seq, maxit = 50) {
+    
+    # X: n-by-p design matrix without the intercept 
+    # y: n-by-1 response vector 
+    # lam.seq: sequence of lambda values 
+    # maxit: number of updates for each lambda 
+    # Center/Scale X
+    # Center y
+    
+    n = length(y)
+    p = dim(X)[2]
+    nlam = length(lam.seq)
+    
+    # Start of code changes
+    y.mean = mean(y)            
+    x.mean = colMeans(X) 
+    x.sd = apply(X,2,sd)  * sqrt((n-1)/n)      
+    
+    #center y
+    yc = scale(y, center = TRUE, scale = FALSE) 
+    #center X
+    Xc = scale(X, center = TRUE, scale=FALSE)
+    #scale X
+    Xs = apply(Xc, 2, function(x) x * (sqrt(n/(n-1))/ sd(x)))
+    
+    # End of code changes
+    
+    # Initialize coef vector b and residual vector r
+    b = rep(0, p)
+    r = yc
+    B = matrix(nrow = nlam, ncol = p + 1)
+    
+    # Triple nested loop
+    for (m in 1:nlam) {
+        lam = 2 * n * lam.seq[m]
+        for (step in 1:maxit) {
+            for (j in 1:p) {
+                r = r + (Xs[, j] * b[j])
+                b[j] = one_var_lasso(r, Xs[, j], lam)
+                r = r - Xs[, j] * b[j]
+            }
+        }
+        B[m, ] = c(0, b)
+    }
+    
+    #start of code changes
+    for (m in 1:nlam){
+      coeff = B[m,]
+      total_coeff = 0
+      for (j in 2:length(coeff)){
+        beta = coeff[j]
+        xmean = x.mean[j-1]
+        xsd = x.sd[j-1]
+        x_unscaled = beta/xsd
+        B[m,j] = x_unscaled
+        
+        total_coeff = total_coeff + ((beta*xmean)/xsd)
+      }
+      total_coeff = y.mean-total_coeff
+      B[m,1] = total_coeff
+    }
+  
+    return(t(B))
+    
+    #end of code changes
+      
+}
+```
+
+#### Check the Accuracy
+
+```{r}
+lam.seq = c(0.30, 0.2, 0.1, 0.05, 0.02, 0.005)
+lasso.fit = glmnet(X, y, alpha = 1, lambda = lam.seq)
+coef(lasso.fit)
+```
+
+```{r}
+myout = MyLasso(X, y, lam.seq, maxit = 50) 
+rownames(myout) = c("Intercept", colnames(X))
+myout
+```
+
+```{r}
+max(abs(coef(lasso.fit) - myout))
+```
